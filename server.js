@@ -4,29 +4,20 @@ import OpenAI from "openai";
 const app = express();
 app.use(express.json());
 
-// ===============================
-// CONFIG OPENAI
-// ===============================
+// OpenAI client (usa variável de ambiente do Railway)
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-// ===============================
-// ROTA DE TESTE (IMPORTANTE)
-// ===============================
-app.get("/", (req, res) => {
-  res.send("Servidor Alexa + OpenAI rodando 🚀");
-});
-
-// ===============================
-// ROTA DA ALEXA
-// ===============================
+// Endpoint chamado pela Alexa
 app.post("/", async (req, res) => {
   try {
-    const request = req.body;
+    const requestType = req.body.request.type;
 
-    // 🔹 Se for abertura da skill
-    if (request.request?.type === "LaunchRequest") {
+    // ===============================
+    // 1️⃣ Quando o usuário abre a skill
+    // ===============================
+    if (requestType === "LaunchRequest") {
       return res.json({
         version: "1.0",
         response: {
@@ -39,63 +30,71 @@ app.post("/", async (req, res) => {
       });
     }
 
-    // 🔹 Se for uma fala do usuário
-    if (request.request?.type === "IntentRequest") {
+    // =========================================
+    // 2️⃣ Quando o usuário faz uma pergunta (GPT)
+    // =========================================
+    if (
+      requestType === "IntentRequest" &&
+      req.body.request.intent.name === "AskGPTIntent"
+    ) {
       const userText =
-        request.request.intent?.slots?.text?.value ||
-        "Converse comigo";
+        req.body.request.intent.slots.query?.value ||
+        "Olá";
 
-      // 🔥 CHAMADA AO CHATGPT
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
           {
             role: "system",
-            content: "Você é um assistente educado e objetivo."
+            content:
+              "Você é uma assistente chamada Alexa GPT. Responda de forma curta, clara e falável, como se estivesse conversando."
           },
           {
             role: "user",
             content: userText
           }
-        ]
+        ],
+        max_tokens: 120
       });
 
-      const resposta =
-        completion.choices[0]?.message?.content ||
-        "Não consegui responder agora.";
+      const answer =
+        completion.choices[0].message.content;
 
       return res.json({
         version: "1.0",
         response: {
           outputSpeech: {
             type: "PlainText",
-            text: resposta
+            text: answer
           },
           shouldEndSession: false
         }
       });
     }
 
-    // 🔹 Fallback
+    // =========================
+    // 3️⃣ Fallback (segurança)
+    // =========================
     return res.json({
       version: "1.0",
       response: {
         outputSpeech: {
           type: "PlainText",
-          text: "Não entendi o pedido."
+          text: "Não entendi. Pode repetir?"
         },
-        shouldEndSession: true
+        shouldEndSession: false
       }
     });
 
   } catch (error) {
     console.error("Erro:", error);
+
     return res.json({
       version: "1.0",
       response: {
         outputSpeech: {
           type: "PlainText",
-          text: "Ocorreu um erro no servidor."
+          text: "Ocorreu um erro ao falar com a inteligência artificial."
         },
         shouldEndSession: true
       }
@@ -103,11 +102,8 @@ app.post("/", async (req, res) => {
   }
 });
 
-// ===============================
-// START SERVER (RAILWAY)
-// ===============================
+// Porta exigida pelo Railway
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
+  console.log("Servidor rodando na porta", PORT);
 });
-
