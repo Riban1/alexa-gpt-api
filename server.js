@@ -4,97 +4,76 @@ import OpenAI from "openai";
 const app = express();
 app.use(express.json());
 
-// OpenAI client (usa variável de ambiente do Railway)
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-// Endpoint chamado pela Alexa
 app.post("/", async (req, res) => {
   try {
-    const requestType = req.body.request.type;
+    // Texto do usuário
+    const userText =
+      req.body?.request?.intent?.slots?.query?.value ||
+      "Olá";
 
-    // ===============================
-    // 1️⃣ Quando o usuário abre a skill
-    // ===============================
-    if (requestType === "LaunchRequest") {
-      return res.json({
-        version: "1.0",
-        response: {
-          outputSpeech: {
-            type: "PlainText",
-            text: "Olá! Pode falar comigo."
-          },
-          shouldEndSession: false
-        }
-      });
-    }
+    // Recupera memória da sessão
+    const sessionAttributes =
+      req.body?.session?.attributes || {};
 
-    // =========================================
-    // 2️⃣ Quando o usuário faz uma pergunta (GPT)
-    // =========================================
-    if (
-      requestType === "IntentRequest" &&
-      req.body.request.intent.name === "AskGPTIntent"
-    ) {
-      const userText =
-        req.body.request.intent.slots.query?.value ||
-        "Olá";
+    let history = sessionAttributes.history || [];
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content:
-              "Você é uma assistente chamada Alexa GPT. Responda de forma curta, clara e falável, como se estivesse conversando."
-          },
-          {
-            role: "user",
-            content: userText
-          }
-        ],
-        max_tokens: 120
-      });
+    // Adiciona a fala do usuário
+    history.push({
+      role: "user",
+      content: userText
+    });
 
-      const answer =
-        completion.choices[0].message.content;
+    // Limita histórico (evita custo alto)
+    history = history.slice(-10);
 
-      return res.json({
-        version: "1.0",
-        response: {
-          outputSpeech: {
-            type: "PlainText",
-            text: answer
-          },
-          shouldEndSession: false
-        }
-      });
-    }
+    // Chamada ao GPT com memória
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "Você é uma assistente chamada Eco Guia. Responda de forma curta, clara e falável."
+        },
+        ...history
+      ],
+      max_tokens: 150
+    });
 
-    // =========================
-    // 3️⃣ Fallback (segurança)
-    // =========================
-    return res.json({
+    const answer = completion.choices[0].message.content;
+
+    // Salva resposta no histórico
+    history.push({
+      role: "assistant",
+      content: answer
+    });
+
+    // Resposta para Alexa COM memória
+    res.json({
       version: "1.0",
+      sessionAttributes: {
+        history
+      },
       response: {
         outputSpeech: {
           type: "PlainText",
-          text: "Não entendi. Pode repetir?"
+          text: answer
         },
         shouldEndSession: false
       }
     });
-
-  } catch (error) {
-    console.error("Erro:", error);
-
-    return res.json({
+  } catch (err) {
+    console.error(err);
+    res.json({
       version: "1.0",
       response: {
         outputSpeech: {
           type: "PlainText",
-          text: "Ocorreu um erro ao falar com a inteligência artificial."
+          text: "Tive um problema ao lembrar da conversa."
         },
         shouldEndSession: true
       }
@@ -102,8 +81,8 @@ app.post("/", async (req, res) => {
   }
 });
 
-// Porta exigida pelo Railway
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log("Servidor rodando na porta", PORT);
 });
+
